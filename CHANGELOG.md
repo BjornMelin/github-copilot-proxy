@@ -1,23 +1,16 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
+## [v0.1.0] - 2025-03-24
 
 ### Added
-- Initial project setup
-- Express server with OpenAI-compatible API endpoints
-- GitHub Copilot authentication using OAuth device flow
-- Token management with automatic refresh
-- Support for chat completions (streaming and non-streaming)
-- Conversion between OpenAI and GitHub Copilot formats
-- Error handling and logging
-- Basic documentation
+- Initial release of GitHub Copilot Proxy
+- OAuth Device Flow Authentication with GitHub
+- OpenAI-Compatible API endpoints (`/v1/models` and `/v1/chat/completions`)
+- Token management with automatic refresh and validation
+- Streaming support for real-time completions
+- Rate limiting based on requests and token usage
+- Usage monitoring and metrics dashboard
 - Web-based authentication UI
-- Static file serving
-- Usage monitoring with request and token tracking
-- Rate limiting based on GitHub Copilot's limits
-- Web dashboard for usage statistics
+- Environment variable configuration with Zod validation
+- Enhanced .gitignore with additional standard entries
+
