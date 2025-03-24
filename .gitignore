@@ -29,10 +29,14 @@ jspm_packages/
 
 # Build output
 dist/
+build/
+out/
+.next/
 
 # Coverage directory used by tools like istanbul
-coverage
+coverage/
 *.lcov
+.nyc_output/
 
 # Yarn v2
 .yarn/cache
@@ -41,6 +45,43 @@ coverage
 .yarn/install-state.gz
 .pnp.*
 
-# IDE 
+# IDEs and editors
 .idea/
 .vscode/
+*.swp
+*.swo
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Package files
+*.tgz
+*.tar.gz
+
+# Misc
+.cache/
+.temp/
+.tmp/
+tmp/
+temp/
+
+# Debug files
+.eslintcache
+.stylelintcache
+
+# SQLite databases
+*.sqlite
+*.sqlite3
+
+# Docker volumes
+docker-volumes/
