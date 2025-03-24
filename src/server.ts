@@ -7,6 +7,8 @@ import { errorHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { authRoutes } from './routes/auth.js';
 import { openaiRoutes } from './routes/openai.js';
+import { usageRoutes } from './routes/usage.js';
+import { rateLimiter } from './middleware/rate-limiter.js';
 
 // Get __dirname equivalent in ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -30,7 +32,9 @@ app.get('/health', (req, res) => {
 
 // Routes
 app.use('/auth', authRoutes);
-app.use('/v1', openaiRoutes);
+// Apply rate limiting to API endpoints
+app.use('/v1', rateLimiter(), openaiRoutes);
+app.use('/usage', usageRoutes);
 
 // Home page - redirect to auth page
 app.get('/', (req, res) => {

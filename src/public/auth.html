@@ -6,6 +6,26 @@
   <title>GitHub Copilot Proxy - Authentication</title>
   <style>
     body {
+    }
+    .navbar {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+      border-bottom: 1px solid #e1e4e8;
+      padding-bottom: 1rem;
+    }
+    .navbar a {
+      color: #0366d6;
+      text-decoration: none;
+      margin-left: 1rem;
+    }
+    .navbar a:hover {
+      text-decoration: underline;
+    }
+    .navbar a.active {
+      font-weight: bold;
+    }
+    body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       max-width: 800px;
       margin: 0 auto;
@@ -68,7 +88,13 @@
   </style>
 </head>
 <body>
-  <h1>GitHub Copilot Proxy Authentication</h1>
+    <div class="navbar">
+    <h1>GitHub Copilot Proxy Authentication</h1>
+    <div>
+      <a href="/auth.html" class="active">Authentication</a>
+      <a href="/usage.html">Usage</a>
+    </div>
+  </div>
   <p>This page helps you authenticate with GitHub Copilot.</p>
   
   <div class="auth-container">

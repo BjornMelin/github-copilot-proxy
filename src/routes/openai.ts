@@ -16,6 +16,7 @@ import { AppError } from '../middleware/error-handler.js';
 import { config } from '../config/index.js';
 import { getMachineId } from '../utils/machine-id.js';
 import { logger } from '../utils/logger.js';
+import { trackRequest } from '../services/usage-service.js';
 
 export const openaiRoutes = express.Router();
 
@@ -73,6 +74,9 @@ openaiRoutes.get('/models', requireAuth, (req, res) => {
 
 // POST /v1/chat/completions - Create a completion
 openaiRoutes.post('/chat/completions', requireAuth, async (req, res, next) => {
+  // Track this request
+  const sessionId = res.locals.sessionId;
+  trackRequest(sessionId, 0); // Initial tracking, token count will be updated later
   try {
     const request = req.body as OpenAICompletionRequest;
     const { messages, stream = false, model = 'gpt-4' } = request;
@@ -117,6 +121,10 @@ openaiRoutes.post('/chat/completions', requireAuth, async (req, res, next) => {
           })),
           usage: completionData.usage
         };
+        
+        // Track token usage
+        const totalTokens = openAIResponse.usage?.total_tokens || 0;
+        trackRequest(sessionId, totalTokens);
         
         res.json(openAIResponse);
       } catch (error) {
@@ -227,6 +235,13 @@ async function handleStreamingCompletion(
           };
           
           res.write(`data: ${JSON.stringify(openAiFormatted)}\n\n`);
+        
+        // Note: For streaming, we don't have accurate token counts
+        // We'll estimate based on response length
+        if (data.choices[0].text) {
+          const estimatedTokens = Math.ceil(data.choices[0].text.length / 4);
+          trackRequest(sessionId, estimatedTokens);
+        }
         } catch (error) {
           logger.error('Error parsing stream message:', error);
           res.write(`data: ${JSON.stringify({ error: String(error) })}\n\n`);
