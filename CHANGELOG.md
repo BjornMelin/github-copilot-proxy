@@ -16,3 +16,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Conversion between OpenAI and GitHub Copilot formats
 - Error handling and logging
 - Basic documentation
+- Web-based authentication UI
+- Static file serving

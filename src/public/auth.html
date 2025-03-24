@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub Copilot Proxy - Authentication</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #0366d6;
+    }
+    button {
+      background-color: #2ea44f;
+      border: 1px solid rgba(27, 31, 35, .15);
+      border-radius: 6px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 6px 16px;
+      transition: background-color .2s;
+    }
+    button:hover {
+      background-color: #2c974b;
+    }
+    .auth-container {
+      border: 1px solid #e1e4e8;
+      border-radius: 6px;
+      padding: 2rem;
+      margin: 2rem 0;
+    }
+    .status {
+      margin-top: 1rem;
+      padding: 1rem;
+      border-radius: 6px;
+    }
+    .status.success {
+      background-color: #dcffe4;
+      color: #1b7736;
+    }
+    .status.error {
+      background-color: #ffe3e3;
+      color: #cc1b1b;
+    }
+    .status.pending {
+      background-color: #fff9e0;
+      color: #9c6603;
+    }
+    .code-display {
+      font-family: monospace;
+      background-color: #f6f8fa;
+      border-radius: 6px;
+      padding: 1rem;
+      margin: 1rem 0;
+      font-size: 22px;
+      text-align: center;
+      letter-spacing: 2px;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>GitHub Copilot Proxy Authentication</h1>
+  <p>This page helps you authenticate with GitHub Copilot.</p>
+  
+  <div class="auth-container">
+    <div id="status-display" class="status">
+      Checking authentication status...
+    </div>
+    
+    <div id="auth-steps" class="hidden">
+      <h2>Authentication Steps</h2>
+      <ol>
+        <li>Click the "Start Authentication" button below</li>
+        <li>You'll receive a verification code</li>
+        <li>Go to <span id="verification-url"></span> on GitHub</li>
+        <li>Enter the verification code when prompted</li>
+        <li>Wait for the authentication to complete</li>
+      </ol>
+      <button id="start-auth-btn">Start Authentication</button>
+    </div>
+    
+    <div id="verification-code-container" class="hidden">
+      <h2>Enter this code on GitHub</h2>
+      <div id="verification-code" class="code-display"></div>
+      <p>Go to <a id="verification-link" href="#" target="_blank">GitHub's device verification page</a> and enter this code.</p>
+      <p>Status: <span id="verification-status">Waiting for verification...</span></p>
+    </div>
+    
+    <div id="auth-success" class="hidden">
+      <h2>Authentication Successful!</h2>
+      <p>You can now use GitHub Copilot with Cursor IDE.</p>
+      <p>Your token will expire at: <span id="token-expiry"></span></p>
+      <button id="logout-btn">Logout</button>
+    </div>
+  </div>
+  
+  <div>
+    <h2>Setup Instructions</h2>
+    <ol>
+      <li>Complete the authentication process above</li>
+      <li>In Cursor IDE, go to Settings > API Keys</li>
+      <li>In the "Override OpenAI Base URL" section, enter: <code id="api-base-url">http://localhost:3000</code></li>
+      <li>Start using Cursor IDE with GitHub Copilot!</li>
+    </ol>
+  </div>
+  
+  <script>
+    const apiUrl = window.location.origin;
+    document.getElementById('api-base-url').textContent = apiUrl;
+    
+    // Elements
+    const statusDisplay = document.getElementById('status-display');
+    const authSteps = document.getElementById('auth-steps');
+    const startAuthBtn = document.getElementById('start-auth-btn');
+    const verificationCodeContainer = document.getElementById('verification-code-container');
+    const verificationCode = document.getElementById('verification-code');
+    const verificationLink = document.getElementById('verification-link');
+    const verificationUrl = document.getElementById('verification-url');
+    const verificationStatus = document.getElementById('verification-status');
+    const authSuccess = document.getElementById('auth-success');
+    const tokenExpiry = document.getElementById('token-expiry');
+    const logoutBtn = document.getElementById('logout-btn');
+    
+    // Check initial auth status
+    checkAuthStatus();
+    
+    // Event listeners
+    startAuthBtn.addEventListener('click', startAuth);
+    logoutBtn.addEventListener('click', logout);
+    
+    // Functions
+    async function checkAuthStatus() {
+      try {
+        const response = await fetch(`${apiUrl}/auth/status`);
+        const data = await response.json();
+        
+        if (data.status === 'authenticated') {
+          showAuthenticatedState(data);
+        } else {
+          showUnauthenticatedState();
+        }
+      } catch (error) {
+        console.error('Error checking auth status:', error);
+        statusDisplay.className = 'status error';
+        statusDisplay.textContent = 'Error checking authentication status. Please refresh the page.';
+      }
+    }
+    
+    async function startAuth() {
+      try {
+        startAuthBtn.disabled = true;
+        startAuthBtn.textContent = 'Starting...';
+        
+        const response = await fetch(`${apiUrl}/auth/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'authenticated') {
+          showAuthenticatedState(data);
+          return;
+        }
+        
+        if (data.verification_uri && data.user_code) {
+          showVerificationState(data);
+          startPollingForCompletion();
+        } else {
+          throw new Error('Invalid response from server');
+        }
+      } catch (error) {
+        console.error('Error starting authentication:', error);
+        statusDisplay.className = 'status error';
+        statusDisplay.textContent = 'Error starting authentication. Please try again.';
+        startAuthBtn.disabled = false;
+        startAuthBtn.textContent = 'Start Authentication';
+      }
+    }
+    
+    function showVerificationState(data) {
+      statusDisplay.className = 'status pending';
+      statusDisplay.textContent = 'Waiting for GitHub verification...';
+      
+      authSteps.classList.add('hidden');
+      verificationCodeContainer.classList.remove('hidden');
+      
+      verificationCode.textContent = data.user_code;
+      verificationLink.href = data.verification_uri;
+      verificationUrl.textContent = data.verification_uri;
+    }
+    
+    async function startPollingForCompletion() {
+      let isComplete = false;
+      let attempts = 0;
+      
+      while (!isComplete && attempts < 60) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        try {
+          const response = await fetch(`${apiUrl}/auth/check`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          const data = await response.json();
+          
+          if (data.status === 'authenticated') {
+            isComplete = true;
+            showAuthenticatedState(data);
+          } else {
+            verificationStatus.textContent = `Waiting for verification... (${attempts + 1})`;
+            attempts++;
+          }
+        } catch (error) {
+          console.error('Error checking auth status:', error);
+          verificationStatus.textContent = `Error checking status, retrying... (${attempts + 1})`;
+          attempts++;
+        }
+      }
+      
+      if (!isComplete) {
+        statusDisplay.className = 'status error';
+        statusDisplay.textContent = 'Authentication timed out. Please try again.';
+        verificationCodeContainer.classList.add('hidden');
+        authSteps.classList.remove('hidden');
+        startAuthBtn.disabled = false;
+        startAuthBtn.textContent = 'Start Authentication';
+      }
+    }
+    
+    function showAuthenticatedState(data) {
+      statusDisplay.className = 'status success';
+      statusDisplay.textContent = 'You are authenticated with GitHub Copilot!';
+      
+      authSteps.classList.add('hidden');
+      verificationCodeContainer.classList.add('hidden');
+      authSuccess.classList.remove('hidden');
+      
+      if (data.expiresAt) {
+        const expiry = new Date(data.expiresAt * 1000);
+        tokenExpiry.textContent = expiry.toLocaleString();
+      } else {
+        tokenExpiry.textContent = 'Unknown';
+      }
+    }
+    
+    function showUnauthenticatedState() {
+      statusDisplay.className = 'status pending';
+      statusDisplay.textContent = 'You need to authenticate with GitHub Copilot.';
+      
+      authSteps.classList.remove('hidden');
+      verificationCodeContainer.classList.add('hidden');
+      authSuccess.classList.add('hidden');
+      
+      startAuthBtn.disabled = false;
+      startAuthBtn.textContent = 'Start Authentication';
+    }
+    
+    async function logout() {
+      try {
+        logoutBtn.disabled = true;
+        logoutBtn.textContent = 'Logging out...';
+        
+        await fetch(`${apiUrl}/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        showUnauthenticatedState();
+      } catch (error) {
+        console.error('Error logging out:', error);
+        statusDisplay.className = 'status error';
+        statusDisplay.textContent = 'Error logging out. Please try again.';
+        
+        logoutBtn.disabled = false;
+        logoutBtn.textContent = 'Logout';
+      }
+    }
+  </script>
+</body>
+</html>
