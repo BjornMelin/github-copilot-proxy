@@ -12,6 +12,9 @@ const envSchema = z.object({
   HOST: z.string().default('localhost'),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   GITHUB_COPILOT_CLIENT_ID: z.string().default('Iv1.b507a08c87ecfe98'),
+  // Rate limiting settings (requests per minute)
+  RATE_LIMIT_DEFAULT: z.string().default('60'),
+  RATE_LIMIT_CHAT_COMPLETIONS: z.string().default('20'),
 });
 
 // Parse and validate environment variables
@@ -21,6 +24,8 @@ const env = envSchema.parse({
   HOST: process.env.HOST,
   LOG_LEVEL: process.env.LOG_LEVEL,
   GITHUB_COPILOT_CLIENT_ID: process.env.GITHUB_COPILOT_CLIENT_ID,
+  RATE_LIMIT_DEFAULT: process.env.RATE_LIMIT_DEFAULT,
+  RATE_LIMIT_CHAT_COMPLETIONS: process.env.RATE_LIMIT_CHAT_COMPLETIONS,
 });
 
 // API endpoints
@@ -47,5 +52,13 @@ export const config = {
       clientId: env.GITHUB_COPILOT_CLIENT_ID,
       apiEndpoints: API_ENDPOINTS,
     }
+  },
+  rateLimits: {
+    default: parseInt(env.RATE_LIMIT_DEFAULT, 10),
+    chatCompletions: parseInt(env.RATE_LIMIT_CHAT_COMPLETIONS, 10),
+    // Token usage thresholds
+    maxTokensPerRequest: 4000,
+    maxTokensPerMinute: 20000,
+    tokenRateLimitResetTime: 60 * 1000, // 1 minute in ms
   }
 };

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub Copilot Proxy - Usage Dashboard</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #0366d6;
+    }
+    .navbar {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+      border-bottom: 1px solid #e1e4e8;
+      padding-bottom: 1rem;
+    }
+    .navbar a {
+      color: #0366d6;
+      text-decoration: none;
+      margin-left: 1rem;
+    }
+    .navbar a:hover {
+      text-decoration: underline;
+    }
+    button {
+      background-color: #2ea44f;
+      border: 1px solid rgba(27, 31, 35, .15);
+      border-radius: 6px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 6px 16px;
+      transition: background-color .2s;
+    }
+    button:hover {
+      background-color: #2c974b;
+    }
+    button.danger {
+      background-color: #d73a49;
+    }
+    button.danger:hover {
+      background-color: #cb2431;
+    }
+    button.secondary {
+      background-color: #6c757d;
+    }
+    button.secondary:hover {
+      background-color: #5a6268;
+    }
+    .dashboard {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .dashboard-card {
+      background-color: #f6f8fa;
+      border-radius: 6px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .dashboard-card h2 {
+      margin-top: 0;
+      font-size: 1.25rem;
+      color: #24292e;
+    }
+    .dashboard-card .value {
+      font-size: 2rem;
+      font-weight: bold;
+      color: #0366d6;
+    }
+    .card-footer {
+      margin-top: 1rem;
+      font-size: 0.875rem;
+      color: #6a737d;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #e1e4e8;
+    }
+    th {
+      background-color: #f6f8fa;
+      font-weight: 600;
+    }
+    tr:hover {
+      background-color: #f6f8fa;
+    }
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .auth-warning {
+      background-color: #fff9e0;
+      border: 1px solid #f9c513;
+      border-radius: 6px;
+      padding: 1rem;
+      margin-bottom: 2rem;
+    }
+    .error {
+      background-color: #ffe3e3;
+      border: 1px solid #d73a49;
+      border-radius: 6px;
+      padding: 1rem;
+      margin-bottom: 2rem;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="navbar">
+    <h1>GitHub Copilot Proxy - Usage Dashboard</h1>
+    <div>
+      <a href="/auth.html">Authentication</a>
+      <a href="/usage.html" class="active">Usage</a>
+    </div>
+  </div>
+  
+  <div id="auth-warning" class="auth-warning hidden">
+    <strong>Authentication Required</strong>
+    <p>You need to authenticate to view usage metrics. <a href="/auth.html">Go to Authentication Page</a></p>
+  </div>
+  
+  <div id="error-container" class="error hidden">
+    <strong>Error</strong>
+    <p id="error-message"></p>
+  </div>
+  
+  <div id="dashboard-container">
+    <div class="dashboard">
+      <div class="dashboard-card">
+        <h2>Total Requests</h2>
+        <div class="value" id="total-requests">0</div>
+        <div class="card-footer">Since server start</div>
+      </div>
+      <div class="dashboard-card">
+        <h2>Total Tokens</h2>
+        <div class="value" id="total-tokens">0</div>
+        <div class="card-footer">Used tokens</div>
+      </div>
+      <div class="dashboard-card">
+        <h2>Active Sessions</h2>
+        <div class="value" id="active-sessions">0</div>
+        <div class="card-footer">Unique clients</div>
+      </div>
+      <div class="dashboard-card">
+        <h2>Avg. Tokens/Request</h2>
+        <div class="value" id="avg-tokens">0</div>
+        <div class="card-footer">Token efficiency</div>
+      </div>
+    </div>
+    
+    <div class="actions">
+      <button id="refresh-btn">Refresh Data</button>
+      <button id="reset-all-btn" class="danger">Reset All Usage Data</button>
+    </div>
+    
+    <h2>Session Details</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Session ID</th>
+          <th>Requests</th>
+          <th>Tokens</th>
+          <th>Last Request</th>
+          <th>Duration</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="sessions-table-body"></tbody>
+    </table>
+  </div>
+  
+  <script>
+    const apiUrl = window.location.origin;
+    
+    // Elements
+    const authWarning = document.getElementById('auth-warning');
+    const errorContainer = document.getElementById('error-container');
+    const errorMessage = document.getElementById('error-message');
+    const dashboardContainer = document.getElementById('dashboard-container');
+    const totalRequestsEl = document.getElementById('total-requests');
+    const totalTokensEl = document.getElementById('total-tokens');
+    const activeSessionsEl = document.getElementById('active-sessions');
+    const avgTokensEl = document.getElementById('avg-tokens');
+    const sessionsTableBody = document.getElementById('sessions-table-body');
+    const refreshBtn = document.getElementById('refresh-btn');
+    const resetAllBtn = document.getElementById('reset-all-btn');
+    
+    // Event listeners
+    refreshBtn.addEventListener('click', fetchData);
+    resetAllBtn.addEventListener('click', resetAllUsage);
+    
+    // Initial data fetch
+    fetchData();
+    
+    // Functions
+    async function fetchData() {
+      try {
+        authWarning.classList.add('hidden');
+        errorContainer.classList.add('hidden');
+        
+        // Fetch summary data
+        const summaryResponse = await fetch(`${apiUrl}/usage/summary`);
+        if (summaryResponse.status === 401) {
+          showAuthWarning();
+          return;
+        }
+        
+        if (!summaryResponse.ok) {
+          throw new Error(`Failed to fetch summary: ${summaryResponse.status} ${summaryResponse.statusText}`);
+        }
+        
+        const summary = await summaryResponse.json();
+        updateDashboard(summary);
+        
+        // Fetch session details
+        const detailsResponse = await fetch(`${apiUrl}/usage/details`);
+        if (!detailsResponse.ok) {
+          throw new Error(`Failed to fetch details: ${detailsResponse.status} ${detailsResponse.statusText}`);
+        }
+        
+        const details = await detailsResponse.json();
+        updateSessionsTable(details);
+      } catch (error) {
+        showError(error.message);
+      }
+    }
+    
+    function updateDashboard(summary) {
+      totalRequestsEl.textContent = summary.totalRequests.toLocaleString();
+      totalTokensEl.textContent = summary.totalTokens.toLocaleString();
+      activeSessionsEl.textContent = summary.activeSessions;
+      avgTokensEl.textContent = summary.averageTokensPerRequest.toLocaleString();
+    }
+    
+    function updateSessionsTable(sessions) {
+      sessionsTableBody.innerHTML = '';
+      
+      if (sessions.length === 0) {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td colspan="6" style="text-align: center;">No active sessions</td>`;
+        sessionsTableBody.appendChild(row);
+        return;
+      }
+      
+      sessions.forEach(session => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${session.sessionId}</td>
+          <td>${session.requestCount.toLocaleString()}</td>
+          <td>${session.tokenCount.toLocaleString()}</td>
+          <td>${formatDateTime(session.lastRequestTime)}</td>
+          <td>${session.duration}</td>
+          <td>
+            <button class="secondary reset-session-btn" data-session="${session.sessionId}">Reset</button>
+          </td>
+        `;
+        sessionsTableBody.appendChild(row);
+      });
+      
+      // Add event listeners to reset buttons
+      document.querySelectorAll('.reset-session-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const sessionId = btn.getAttribute('data-session');
+          resetSession(sessionId);
+        });
+      });
+    }
+    
+    function formatDateTime(isoString) {
+      const date = new Date(isoString);
+      return date.toLocaleString();
+    }
+    
+    async function resetSession(sessionId) {
+      try {
+        const response = await fetch(`${apiUrl}/usage/reset/${sessionId}`, {
+          method: 'POST'
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to reset session: ${response.status} ${response.statusText}`);
+        }
+        
+        fetchData();
+      } catch (error) {
+        showError(error.message);
+      }
+    }
+    
+    async function resetAllUsage() {
+      if (!confirm('Are you sure you want to reset all usage data? This cannot be undone.')) {
+        return;
+      }
+      
+      try {
+        const response = await fetch(`${apiUrl}/usage/reset-all`, {
+          method: 'POST'
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to reset all usage: ${response.status} ${response.statusText}`);
+        }
+        
+        fetchData();
+      } catch (error) {
+        showError(error.message);
+      }
+    }
+    
+    function showAuthWarning() {
+      authWarning.classList.remove('hidden');
+      dashboardContainer.classList.add('hidden');
+    }
+    
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorContainer.classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>

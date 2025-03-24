@@ -18,3 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic documentation
 - Web-based authentication UI
 - Static file serving
+- Usage monitoring with request and token tracking
+- Rate limiting based on GitHub Copilot's limits
+- Web dashboard for usage statistics
