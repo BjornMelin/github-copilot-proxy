@@ -1,0 +1,68 @@
+{
+  "name": "github-copilot-proxy",
+  "version": "0.1.0",
+  "description": "Proxy server that lets Cursor IDE use GitHub Copilot APIs",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "lint": "eslint src/**/*.ts",
+    "test": "jest",
+    "prepare": "husky"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bjornmelin/github-copilot-proxy.git"
+  },
+  "keywords": [
+    "github",
+    "copilot",
+    "cursor",
+    "ide",
+    "ai",
+    "proxy",
+    "openai",
+    "api"
+  ],
+  "author": "Bjorn Melin",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bjornmelin/github-copilot-proxy/issues"
+  },
+  "homepage": "https://github.com/bjornmelin/github-copilot-proxy#readme",
+  "dependencies": {
+    "@microsoft/fetch-event-source": "^2.0.1",
+    "@octokit/auth-oauth-device": "^6.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^18.6.0",
+    "@commitlint/config-conventional": "^18.6.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.11.6",
+    "@types/supertest": "^6.0.2",
+    "@types/uuid": "^9.0.8",
+    "@typescript-eslint/eslint-plugin": "^6.19.1",
+    "@typescript-eslint/parser": "^6.19.1",
+    "eslint": "^8.56.0",
+    "husky": "^9.0.6",
+    "jest": "^29.7.0",
+    "supertest": "^6.3.4",
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
