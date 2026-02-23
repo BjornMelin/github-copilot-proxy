@@ -27,11 +27,17 @@ jspm_packages/
 .env.production.local
 .env.local
 
+# Token storage (sensitive!)
+.tokens.json
+
 # Build output
 dist/
 build/
 out/
 .next/
+
+# Dev-mode temp loader
+.dev-entry.mjs
 
 # Coverage directory used by tools like istanbul
 coverage/

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { checkRateLimit, getUsage } from '../services/usage-service.js';
+import { checkRateLimit, getUsage, getTokenUsageInWindow } from '../services/usage-service.js';
 import { logger } from '../utils/logger.js';
 import { config } from '../config/index.js';
 import crypto from 'crypto';

@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
-import pkg from '../../package.json' assert { type: 'json' };
+import pkg from '../../package.json' with { type: 'json' };
 
 // Load environment variables
 dotenv.config();
@@ -32,6 +32,7 @@ const env = envSchema.parse({
 const API_ENDPOINTS = {
   GITHUB_COPILOT_TOKEN: 'https://api.github.com/copilot_internal/v2/token',
   GITHUB_COPILOT_COMPLETIONS: 'https://copilot-proxy.githubusercontent.com/v1/engines/copilot-codex/completions',
+  GITHUB_COPILOT_CHAT: 'https://api.individual.githubcopilot.com/chat/completions',
 };
 
 // Configuration object

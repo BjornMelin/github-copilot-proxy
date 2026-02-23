@@ -92,6 +92,7 @@
     <h1>GitHub Copilot Proxy Authentication</h1>
     <div>
       <a href="/auth.html" class="active">Authentication</a>
+      <a href="/setup.html">Setup</a>
       <a href="/usage.html">Usage</a>
     </div>
   </div>
@@ -246,7 +247,7 @@
           
           if (data.status === 'authenticated') {
             isComplete = true;
-            showAuthenticatedState(data);
+            showAuthenticatedState(data, true); // Redirect to setup
           } else {
             verificationStatus.textContent = `Waiting for verification... (${attempts + 1})`;
             attempts++;
@@ -268,7 +269,7 @@
       }
     }
     
-    function showAuthenticatedState(data) {
+    function showAuthenticatedState(data, redirectToSetup = false) {
       statusDisplay.className = 'status success';
       statusDisplay.textContent = 'You are authenticated with GitHub Copilot!';
       
@@ -281,6 +282,13 @@
         tokenExpiry.textContent = expiry.toLocaleString();
       } else {
         tokenExpiry.textContent = 'Unknown';
+      }
+      
+      // Auto-redirect to setup page after successful authentication
+      if (redirectToSetup) {
+        setTimeout(() => {
+          window.location.href = '/setup.html';
+        }, 1500);
       }
     }
     

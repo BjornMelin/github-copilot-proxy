@@ -8,6 +8,8 @@ interface UsageMetrics {
   tokenCount: number;
   lastRequestTime: number;
   startTime: number;
+  // Track request timestamps for sliding window rate limiting
+  requestTimestamps: number[];
   // Track tokens used per minute window
   tokenTimestamps: Array<{
     tokens: number;
@@ -32,6 +34,7 @@ export function initializeUsage(sessionId: string): void {
       tokenCount: 0,
       lastRequestTime: Date.now(),
       startTime: Date.now(),
+      requestTimestamps: [],
       tokenTimestamps: []
     };
     logger.debug(`Initialized usage tracking for session: ${sessionId.substring(0, 8)}...`);
@@ -53,6 +56,9 @@ export function trackRequest(sessionId: string, tokenCount = 0): void {
   usage[sessionId].tokenCount += tokenCount;
   usage[sessionId].lastRequestTime = now;
   
+  // Record request timestamp for sliding window rate limiting
+  usage[sessionId].requestTimestamps.push(now);
+  
   // Record token usage with timestamp for rate limiting over time
   if (tokenCount > 0) {
     usage[sessionId].tokenTimestamps.push({
@@ -61,13 +67,17 @@ export function trackRequest(sessionId: string, tokenCount = 0): void {
     });
   }
   
-  // Clean up old token timestamps (older than 5 minutes)
+  // Clean up old timestamps (older than 5 minutes)
   const fiveMinutesAgo = now - 5 * 60 * 1000;
+  usage[sessionId].requestTimestamps = usage[sessionId].requestTimestamps.filter(
+    ts => ts >= fiveMinutesAgo
+  );
   usage[sessionId].tokenTimestamps = usage[sessionId].tokenTimestamps.filter(
     entry => entry.timestamp >= fiveMinutesAgo
   );
   
-  logger.debug(`Tracked request for session ${sessionId.substring(0, 8)}...: +${tokenCount} tokens`);
+  // Only log significant token updates (avoid per-chunk logging noise)
+  // Logged at higher thresholds or when explicitly needed
 }
 
 /**
@@ -124,13 +134,17 @@ export function checkRateLimit(
   const now = Date.now();
   const oneMinuteAgo = now - 60 * 1000;
   
-  // Simple rate limiting based on requests in the last minute
-  // In a production app, you'd implement a sliding window algorithm
-  if (
-    usage[sessionId].requestCount > maxRequestsPerMinute && 
-    usage[sessionId].lastRequestTime > oneMinuteAgo
-  ) {
-    const retryAfter = Math.ceil((usage[sessionId].lastRequestTime + 60 * 1000 - now) / 1000);
+  // Sliding window rate limiting: count only requests within the last minute
+  const recentRequests = usage[sessionId].requestTimestamps.filter(
+    ts => ts >= oneMinuteAgo
+  ).length;
+  
+  if (recentRequests >= maxRequestsPerMinute) {
+    // Find the oldest request in the window to calculate when a slot frees up
+    const oldestInWindow = usage[sessionId].requestTimestamps
+      .filter(ts => ts >= oneMinuteAgo)
+      .sort((a, b) => a - b)[0];
+    const retryAfter = Math.ceil((oldestInWindow + 60 * 1000 - now) / 1000);
     return { limited: true, retryAfter: Math.max(1, retryAfter) };
   }
   
@@ -148,6 +162,7 @@ export function resetUsage(sessionId: string): void {
       tokenCount: 0,
       lastRequestTime: Date.now(),
       startTime: Date.now(),
+      requestTimestamps: [],
       tokenTimestamps: []
     };
     logger.info(`Reset usage metrics for session: ${sessionId.substring(0, 8)}...`);
