@@ -19,7 +19,7 @@ export const app = express();
 
 // Apply middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: config.server.requestBodyLimit }));
 app.use(requestLogger);
 
 // Serve static files

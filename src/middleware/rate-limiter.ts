@@ -1,8 +1,34 @@
 import { Request, Response, NextFunction } from 'express';
-import { checkRateLimit, getUsage } from '../services/usage-service.js';
+import { checkRateLimit, getTokenUsageInWindow, getUsage } from '../services/usage-service.js';
 import { logger } from '../utils/logger.js';
 import { config } from '../config/index.js';
 import crypto from 'crypto';
+
+interface RateLimitMessage {
+  content: unknown;
+}
+
+function estimateMessageTokens(content: unknown): number {
+  if (typeof content === 'string') {
+    return Math.ceil(content.length / 4);
+  }
+
+  if (!Array.isArray(content)) {
+    return 0;
+  }
+
+  return content.reduce((total, part) => {
+    if (!part || typeof part !== 'object' || !('type' in part)) {
+      return total;
+    }
+
+    if (part.type === 'text' && 'text' in part && typeof part.text === 'string') {
+      return total + Math.ceil(part.text.length / 4);
+    }
+
+    return total;
+  }, 0);
+}
 
 // Route-specific rate limits
 const ROUTE_RATE_LIMITS: Record<string, number> = {
@@ -23,7 +49,8 @@ export function rateLimiter(maxRequestsPerMinute?: number) {
     const effectiveLimit = maxRequestsPerMinute || routeLimit || config.rateLimits.default;
 
     // Get session identifier - use token hash if available, or IP address
-    const token = res.locals.token || '';
+    const authorizationHeader = req.get('Authorization') || '';
+    const token = res.locals.token || authorizationHeader.replace(/^Bearer\s+/i, '').trim();
     const ipAddress = req.ip || req.socket.remoteAddress || '';
     const sessionId = token
       ? crypto.createHash('sha256').update(token).digest('hex')
@@ -75,11 +102,9 @@ export function rateLimiter(maxRequestsPerMinute?: number) {
         // Check if this particular request might exceed per-request token limits
         // This is a rough estimate based on request body size
         if (req.body && req.body.messages) {
-          const messages = req.body.messages;
-          const estimatedTokens = messages.reduce((total: number, msg: any) => {
-            const content = typeof msg.content === 'string' ? msg.content : '';
-            // Rough estimate: 1 token ≈ 4 chars
-            return total + Math.ceil(content.length / 4);
+          const messages = req.body.messages as RateLimitMessage[];
+          const estimatedTokens = messages.reduce((total: number, msg) => {
+            return total + estimateMessageTokens(msg.content);
           }, 0);
           
           if (estimatedTokens > config.rateLimits.maxTokensPerRequest) {

@@ -1,3 +1,4 @@
+import { describe, expect, it } from '@jest/globals';
 import { 
   convertMessagesToCopilotPrompt, 
   detectLanguageFromMessages 
@@ -15,7 +16,7 @@ describe('Copilot Service', () => {
         { role: 'system', content: 'You are a helpful assistant.' }
       ];
       expect(convertMessagesToCopilotPrompt(messages))
-        .toBe('You are a helpful assistant.\n\n');
+        .toBe('System: You are a helpful assistant.\n\nAssistant: ');
     });
     
     it('should handle user message', () => {
@@ -31,7 +32,7 @@ describe('Copilot Service', () => {
         { role: 'assistant', content: 'Hi there!' }
       ];
       expect(convertMessagesToCopilotPrompt(messages))
-        .toBe('Assistant: Hi there!\n\n');
+        .toBe('Assistant: Hi there!');
     });
     
     it('should handle conversation flow', () => {
@@ -42,7 +43,23 @@ describe('Copilot Service', () => {
         { role: 'user', content: 'Tell me a joke.' }
       ];
       expect(convertMessagesToCopilotPrompt(messages))
-        .toBe('You are a helpful assistant.\n\nUser: How are you?\n\nAssistant: I\'m doing well, thank you!\n\nUser: Tell me a joke.\n\nAssistant: ');
+        .toBe('System: You are a helpful assistant.\n\nUser: How are you?\n\nAssistant: I\'m doing well, thank you!\n\nUser: Tell me a joke.\n\nAssistant: ');
+    });
+
+    it('should flatten text parts for newer OpenAI-style content arrays', () => {
+      const messages: OpenAIMessage[] = [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Summarize this change.' },
+            { type: 'image_url', image_url: { url: 'https://example.com/image.png' } },
+            { type: 'text', text: 'Focus on the API behavior.' }
+          ]
+        }
+      ];
+
+      expect(convertMessagesToCopilotPrompt(messages))
+        .toBe('User: Summarize this change.\nFocus on the API behavior.\n\nAssistant: ');
     });
   });
   
