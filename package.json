@@ -1,19 +1,19 @@
 {
   "name": "github-copilot-proxy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Proxy server that lets Cursor IDE use GitHub Copilot APIs",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
+    "dev": "node --loader ts-node/esm src/index.ts",
     "lint": "eslint src/**/*.ts",
-    "test": "jest",
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "prepare": "husky"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bjornmelin/github-copilot-proxy.git"
+    "url": "git+https://github.com/ronnypark/github-copilot-proxy.git"
   },
   "keywords": [
     "github",
@@ -28,9 +28,9 @@
   "author": "Bjorn Melin",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/bjornmelin/github-copilot-proxy/issues"
+    "url": "https://github.com/ronnypark/github-copilot-proxy/issues"
   },
-  "homepage": "https://github.com/bjornmelin/github-copilot-proxy#readme",
+  "homepage": "https://github.com/ronnypark/github-copilot-proxy#readme",
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",
     "@octokit/auth-oauth-device": "^6.0.1",

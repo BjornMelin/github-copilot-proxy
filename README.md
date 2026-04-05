@@ -15,6 +15,8 @@ A proxy server that enables Cursor IDE to use GitHub Copilot's API instead of Cu
 - **Token Management**: Automatically refreshes Copilot tokens
 - **Streaming Support**: Supports both streaming and non-streaming completions
 - **Easy Configuration**: Simple setup with Cursor IDE
+- **Cursor 3 Compatibility Improvements**: Supports larger request payloads, newer OpenAI-style message content, and broader model aliasing
+- **Hybrid Provider Routing**: Routes text/code requests to Copilot and multimodal requests to an OpenAI-compatible vision backend
 
 ## 📋 Prerequisites
 
@@ -26,7 +28,7 @@ A proxy server that enables Cursor IDE to use GitHub Copilot's API instead of Cu
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/bjornmelin/github-copilot-proxy.git
+   git clone https://github.com/ronnypark/github-copilot-proxy.git
    cd github-copilot-proxy
    ```
 
@@ -53,13 +55,62 @@ A proxy server that enables Cursor IDE to use GitHub Copilot's API instead of Cu
 ## 🔌 Configuration with Cursor IDE
 
 1. Open Cursor IDE
-2. Go to Settings > API Keys
-3. In the "Override OpenAI Base URL" section, enter:
+2. Open the OpenAI-compatible provider settings for your custom model endpoint
+3. Set the base URL to:
    ```
    http://localhost:3000
    ```
-4. Go to http://localhost:3000 in your browser
-5. Follow the authentication steps to connect to GitHub
+4. Use any placeholder API key if Cursor requires one for saving the provider configuration
+5. Go to http://localhost:3000 in your browser
+6. Follow the authentication steps to connect to GitHub
+
+## ✅ Current Cursor Support
+
+- Supported today: `GET /v1/models`, `GET /v1/models/:model`, `POST /v1/chat/completions`
+- Streaming is supported with OpenAI-style SSE chunks
+- The proxy now accepts newer text-content arrays used by modern OpenAI-compatible clients
+- Request bodies up to `10mb` are accepted by default, which is safer for larger Cursor prompts and code context
+- Image requests can be routed to a separate OpenAI-compatible vision backend when configured
+
+## 🔭 Vision Backend Setup
+
+To enable real image support, configure an OpenAI-compatible multimodal backend:
+
+```bash
+VISION_BACKEND_NAME=openai-compatible-vision
+VISION_BACKEND_BASE_URL=https://your-provider.example/v1
+VISION_BACKEND_API_KEY=your_api_key
+VISION_BACKEND_DEFAULT_MODEL=gpt-4o
+VISION_BACKEND_MODELS=gpt-4o,gpt-4.1,claude-opus-4.1
+```
+
+Behavior:
+
+- Requests containing `image_url` content parts are routed to the vision backend
+- Requests that explicitly target a configured vision model are routed there even without images
+- Standard Copilot-friendly text/code models continue to use the GitHub Copilot backend
+
+## ⚠️ Current Limitations
+
+- This proxy is still a chat-completions bridge. It does not implement `responses`, `embeddings`, audio, or image generation endpoints.
+- Tool calling fields are accepted and ignored rather than executed.
+- Authentication and usage tracking are in-memory only, so multi-instance deployments need shared state.
+- Copilot backend behavior is still constrained by GitHub's internal API contracts, not Cursor's public model catalog.
+- The vision backend must expose an OpenAI-compatible `/chat/completions` endpoint.
+
+## 🔧 Recommended Environment Settings
+
+```bash
+HOST=0.0.0.0
+PORT=3000
+REQUEST_BODY_LIMIT=10mb
+COPILOT_EDITOR_VERSION=Cursor/3.0.0
+COPILOT_EDITOR_PLUGIN_VERSION=github-copilot-proxy/0.2.0
+VISION_BACKEND_BASE_URL=
+VISION_BACKEND_API_KEY=
+```
+
+Use `HOST=0.0.0.0` when running in Docker, Codespaces, or another remote environment where Cursor is connecting from outside the container.
 
 ## 💡 Usage
 
@@ -74,7 +125,7 @@ To switch back to Cursor's API:
 1. The proxy authenticates with GitHub using the OAuth device flow
 2. GitHub provides a token that the proxy uses to obtain a Copilot token
 3. Cursor sends requests to the proxy in OpenAI format
-4. The proxy converts these requests to GitHub Copilot's format
+4. The proxy routes text and code requests to Copilot and multimodal requests to the configured vision backend
 5. The proxy forwards responses back to Cursor in OpenAI format
 
 ## 🛠️ Development
@@ -83,6 +134,8 @@ To switch back to Cursor's API:
 ```bash
 npm run dev
 ```
+
+The development script now uses Node's ESM loader for `ts-node`, which is required by this project's `NodeNext` module configuration.
 
 ### Testing:
 ```bash

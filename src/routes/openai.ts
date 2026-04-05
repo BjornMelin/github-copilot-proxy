@@ -7,6 +7,7 @@ import {
   refreshCopilotToken 
 } from '../services/auth-service.js';
 import { 
+  normalizeStopSequences,
   convertMessagesToCopilotPrompt,
   detectLanguageFromMessages,
   makeCompletionRequest
@@ -17,69 +18,106 @@ import { config } from '../config/index.js';
 import { getMachineId } from '../utils/machine-id.js';
 import { logger } from '../utils/logger.js';
 import { trackRequest } from '../services/usage-service.js';
+import {
+  getAvailableModels,
+  resolveCompletionProvider,
+  type ProviderModelDefinition,
+} from '../services/provider-router.js';
+import {
+  makeVisionCompletionRequest,
+  streamVisionCompletion,
+} from '../services/vision-service.js';
 
 export const openaiRoutes = express.Router();
 
-// Authentication middleware
-const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+function buildModel(model: ProviderModelDefinition) {
+  return {
+    id: model.id,
+    object: 'model',
+    created: Math.floor(Date.now() / 1000),
+    owned_by: model.ownedBy,
+  };
+}
+
+function createAuthError(message: string, code: string): AppError {
+  const error = new Error(message) as AppError;
+  error.status = 401;
+  error.code = code;
+  return error;
+}
+
+async function getValidatedCopilotToken(): Promise<string> {
+  const token = getCopilotToken();
+
+  if (!token) {
+    throw createAuthError('Authentication required', 'authentication_required');
+  }
+
   if (!isTokenValid()) {
-    const error = new Error('Authentication required') as AppError;
-    error.status = 401;
-    error.code = 'authentication_required';
-    return next(error);
+    try {
+      await refreshCopilotToken();
+    } catch (error) {
+      logger.error('Token refresh failed in route handler:', error);
+      throw createAuthError('Authentication failed', 'authentication_failed');
+    }
+  }
+
+  const validatedToken = getCopilotToken();
+  if (!validatedToken?.token) {
+    throw createAuthError('Authentication required', 'authentication_required');
+  }
+
+  return validatedToken.token;
+}
+
+function handleStreamingRouteError(
+  res: express.Response,
+  error: unknown,
+  next: express.NextFunction
+): void {
+  if (!res.headersSent) {
+    next(error);
+    return;
   }
 
   try {
-    // Check if token needs refreshing
-    if (getCopilotToken() && !isTokenValid()) {
-      await refreshCopilotToken();
-    }
-    next();
-  } catch (error) {
-    logger.error('Token refresh failed in middleware:', error);
-    const authError = new Error('Authentication failed') as AppError;
-    authError.status = 401;
-    authError.code = 'authentication_failed';
-    next(authError);
+    res.write(`data: ${JSON.stringify({ error: String(error) })}\n\n`);
+    res.end();
+  } catch (streamError) {
+    logger.error('Error sending stream failure response:', streamError);
   }
-};
+}
 
 // GET /v1/models - List available models
-openaiRoutes.get('/models', requireAuth, (req, res) => {
-  // Return a simple model list that includes models compatible with GitHub Copilot
+openaiRoutes.get('/models', (req, res) => {
   res.json({
     object: 'list',
-    data: [
-      {
-        id: 'gpt-4',
-        object: 'model',
-        created: Date.now(),
-        owned_by: 'github-copilot',
-      },
-      {
-        id: 'gpt-4o',
-        object: 'model',
-        created: Date.now(),
-        owned_by: 'github-copilot',
-      },
-      {
-        id: 'gpt-3.5-turbo',
-        object: 'model',
-        created: Date.now(),
-        owned_by: 'github-copilot',
-      }
-    ]
+    data: getAvailableModels().map(buildModel)
   });
 });
 
+openaiRoutes.get('/models/:model', (req, res, next) => {
+  const model = getAvailableModels().find((candidate) => candidate.id === req.params.model);
+
+  if (!model) {
+    const error = new Error(`Model '${req.params.model}' not found`) as AppError;
+    error.status = 404;
+    error.code = 'model_not_found';
+    return next(error);
+  }
+
+  return res.json(buildModel(model));
+});
+
 // POST /v1/chat/completions - Create a completion
-openaiRoutes.post('/chat/completions', requireAuth, async (req, res, next) => {
+openaiRoutes.post('/chat/completions', async (req, res, next) => {
   // Track this request
   const sessionId = res.locals.sessionId;
   trackRequest(sessionId, 0); // Initial tracking, token count will be updated later
+
   try {
     const request = req.body as OpenAICompletionRequest;
-    const { messages, stream = false, model = 'gpt-4' } = request;
+    const { messages, stream = false } = request;
     
     // Validate request
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -88,50 +126,63 @@ openaiRoutes.post('/chat/completions', requireAuth, async (req, res, next) => {
       error.code = 'invalid_request';
       return next(error);
     }
-    
-    const copilotToken = getCopilotToken();
-    if (!copilotToken) {
-      const error = new Error('Authentication required') as AppError;
-      error.status = 401;
-      error.code = 'authentication_required';
-      return next(error);
-    }
-    
-    // Handle streaming response
-    if (stream) {
-      handleStreamingCompletion(req, res, next);
-    } else {
-      // Handle non-streaming response
-      try {
-        const completionData = await makeCompletionRequest(request, copilotToken.token);
-        
-        // Convert to OpenAI format
-        const openAIResponse: OpenAICompletion = {
-          id: `chatcmpl-${uuidv4()}`,
-          object: 'chat.completion',
-          created: Math.floor(Date.now() / 1000),
-          model,
-          choices: completionData.choices.map((choice, index) => ({
-            index,
-            message: {
-              role: 'assistant',
-              content: choice.text,
-            },
-            finish_reason: choice.finish_reason || 'stop',
-          })),
-          usage: completionData.usage
-        };
-        
-        // Track token usage
-        const totalTokens = openAIResponse.usage?.total_tokens || 0;
-        trackRequest(sessionId, totalTokens);
-        
-        res.json(openAIResponse);
-      } catch (error) {
-        logger.error('Error in non-streaming completion:', error);
-        next(error);
+
+    const resolvedProvider = resolveCompletionProvider({
+      messages,
+      model: request.model,
+    });
+
+    const resolvedRequest: OpenAICompletionRequest = {
+      ...request,
+      model: resolvedProvider.model,
+    };
+
+    if (resolvedProvider.provider === 'vision') {
+      if (stream) {
+        try {
+          await streamVisionCompletion(resolvedRequest, res);
+        } catch (error) {
+          handleStreamingRouteError(res, error, next);
+        }
+        return;
       }
+
+      const completion = await makeVisionCompletionRequest(resolvedRequest);
+      trackRequest(sessionId, completion.usage?.total_tokens || 0);
+      return res.json(completion);
     }
+
+    const copilotToken = await getValidatedCopilotToken();
+
+    if (stream) {
+      try {
+        await handleStreamingCompletion(resolvedRequest, res, sessionId, copilotToken);
+      } catch (error) {
+        handleStreamingRouteError(res, error, next);
+      }
+      return;
+    }
+
+    const completionData = await makeCompletionRequest(resolvedRequest, copilotToken);
+    
+    const openAIResponse: OpenAICompletion = {
+      id: `chatcmpl-${uuidv4()}`,
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model: resolvedRequest.model,
+      choices: completionData.choices.map((choice, index) => ({
+        index,
+        message: {
+          role: 'assistant',
+          content: choice.text,
+        },
+        finish_reason: choice.finish_reason || 'stop',
+      })),
+      usage: completionData.usage
+    };
+    
+    trackRequest(sessionId, openAIResponse.usage?.total_tokens || 0);
+    res.json(openAIResponse);
   } catch (error) {
     next(error);
   }
@@ -139,21 +190,13 @@ openaiRoutes.post('/chat/completions', requireAuth, async (req, res, next) => {
 
 // Handle streaming completions
 async function handleStreamingCompletion(
-  req: express.Request, 
+  request: OpenAICompletionRequest,
   res: express.Response, 
-  next: express.NextFunction
+  sessionId: string,
+  copilotAccessToken: string
 ) {
   try {
-    const request = req.body as OpenAICompletionRequest;
-    const { messages, temperature, max_tokens, top_p, n, model = 'gpt-4' } = request;
-    
-    const copilotToken = getCopilotToken();
-    if (!copilotToken || !copilotToken.token) {
-      const error = new Error('Authentication required') as AppError;
-      error.status = 401;
-      error.code = 'authentication_required';
-      return next(error);
-    }
+    const { messages, temperature, max_tokens, max_completion_tokens, top_p, n, stop, model } = request;
     
     // Convert OpenAI messages to Copilot format
     const prompt = convertMessagesToCopilotPrompt(messages);
@@ -166,6 +209,13 @@ async function handleStreamingCompletion(
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    const completionId = `chatcmpl-${uuidv4()}`;
+    const normalizedStop = normalizeStopSequences(stop);
+    let sentRoleChunk = false;
+    let streamComplete = false;
     
     const completionsUrl = config.github.copilot.apiEndpoints.GITHUB_COPILOT_COMPLETIONS;
     
@@ -174,24 +224,24 @@ async function handleStreamingCompletion(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${copilotToken.token}`,
+        'Authorization': `Bearer ${copilotAccessToken}`,
         'X-Request-Id': uuidv4(),
         'Machine-Id': machineId,
-        'User-Agent': 'GitHubCopilotChat/0.12.0',
-        'Editor-Version': 'Cursor-IDE/1.0.0',
-        'Editor-Plugin-Version': 'copilot-cursor/1.0.0',
-        'Openai-Organization': 'github-copilot',
-        'Openai-Intent': 'copilot-ghost'
+        'User-Agent': config.github.copilot.clientHeaders.userAgent,
+        'Editor-Version': config.github.copilot.clientHeaders.editorVersion,
+        'Editor-Plugin-Version': config.github.copilot.clientHeaders.editorPluginVersion,
+        'Openai-Organization': config.github.copilot.clientHeaders.openAIOrganization,
+        'Openai-Intent': config.github.copilot.clientHeaders.openAIIntent
       },
       body: JSON.stringify({
         prompt,
         suffix,
-        max_tokens: max_tokens || 500,
-        temperature: temperature || 0.7,
-        top_p: top_p || 1,
-        n: n || 1,
+        max_tokens: max_tokens ?? max_completion_tokens ?? 500,
+        temperature: temperature ?? 0.7,
+        top_p: top_p ?? 1,
+        n: n ?? 1,
         stream: true,
-        stop: ["\n\n"],
+        ...(normalizedStop ? { stop: normalizedStop } : {}),
         extra: {
           language: detectLanguageFromMessages(messages),
           next_indent: 0,
@@ -209,6 +259,7 @@ async function handleStreamingCompletion(
       },
       onmessage(msg) {
         if (msg.data === '[DONE]') {
+          streamComplete = true;
           res.write('data: [DONE]\n\n');
           return;
         }
@@ -216,20 +267,37 @@ async function handleStreamingCompletion(
         try {
           // Parse the data
           const data = JSON.parse(msg.data);
+          const text = data.choices?.[0]?.text || '';
+          const finishReason = data.choices?.[0]?.finish_reason || null;
+
+          if (!sentRoleChunk) {
+            sentRoleChunk = true;
+            res.write(`data: ${JSON.stringify({
+              id: completionId,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model,
+              choices: [
+                {
+                  index: 0,
+                  delta: { role: 'assistant' },
+                  finish_reason: null
+                }
+              ]
+            })}\n\n`);
+          }
           
           // Convert to ChatCompletions format
           const openAiFormatted = {
-            id: `chatcmpl-${uuidv4()}`,
+            id: completionId,
             object: 'chat.completion.chunk',
             created: Math.floor(Date.now() / 1000),
             model,
             choices: [
               {
                 index: 0,
-                delta: {
-                  content: data.choices[0].text
-                },
-                finish_reason: data.choices[0].finish_reason || null
+                delta: text ? { content: text } : {},
+                finish_reason: finishReason
               }
             ]
           };
@@ -238,8 +306,8 @@ async function handleStreamingCompletion(
         
         // Note: For streaming, we don't have accurate token counts
         // We'll estimate based on response length
-        if (data.choices[0].text) {
-          const estimatedTokens = Math.ceil(data.choices[0].text.length / 4);
+        if (text) {
+          const estimatedTokens = Math.ceil(text.length / 4);
           trackRequest(sessionId, estimatedTokens);
         }
         } catch (error) {
@@ -253,23 +321,14 @@ async function handleStreamingCompletion(
         res.end();
       },
       onclose() {
+        if (!streamComplete) {
+          res.write('data: [DONE]\n\n');
+        }
         res.end();
       }
     });
   } catch (error) {
     logger.error('Error in streaming completion:', error);
-    
-    // Try to send error to client if response headers haven't been sent
-    if (!res.headersSent) {
-      return next(error);
-    }
-    
-    // Otherwise try to write error to stream
-    try {
-      res.write(`data: ${JSON.stringify({ error: String(error) })}\n\n`);
-      res.end();
-    } catch (streamError) {
-      logger.error('Error sending error response to stream:', streamError);
-    }
+    throw error;
   }
 }

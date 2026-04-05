@@ -1,5 +1,5 @@
 import express from 'express';
-import { getAllUsage, getUsage, getUsageSummary, resetUsage } from '../services/usage-service.js';
+import { getAllUsage, getUsageSummary, resetUsage } from '../services/usage-service.js';
 import { isTokenValid } from '../services/auth-service.js';
 import { logger } from '../utils/logger.js';
 import { AppError } from '../middleware/error-handler.js';

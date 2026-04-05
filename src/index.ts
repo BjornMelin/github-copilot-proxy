@@ -2,12 +2,12 @@ import { app } from './server.js';
 import { config } from './config/index.js';
 import { logger } from './utils/logger.js';
 
-const startServer = () => {
-  const port = config.server.port;
-  const host = config.server.host;
+const host = config.server.host;
+const port = config.server.port;
 
+const startServer = () => {
   try {
-    app.listen(port, () => {
+    app.listen(port, host, () => {
       logger.info(`Server running at http://${host}:${port}/`);
       logger.info('Press CTRL-C to stop the server');
     });

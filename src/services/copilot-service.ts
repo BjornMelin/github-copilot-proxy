@@ -1,13 +1,44 @@
-import fetch from 'node-fetch';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config/index.js';
 import { 
+  OpenAIContentPart,
   OpenAIMessage, 
   OpenAICompletionRequest 
 } from '../types/openai.js';
 import { CopilotCompletionResponse } from '../types/github.js';
 import { getMachineId } from '../utils/machine-id.js';
 import { logger } from '../utils/logger.js';
+
+function getTextFromContentParts(parts: OpenAIContentPart[]): string {
+  return parts
+    .filter((part): part is Extract<OpenAIContentPart, { type: 'text' }> => part.type === 'text')
+    .map(part => part.text)
+    .join('\n');
+}
+
+export function getMessageTextContent(content: OpenAIMessage['content']): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return getTextFromContentParts(content);
+  }
+
+  return '';
+}
+
+export function normalizeStopSequences(stop?: string | string[]): string[] | undefined {
+  if (!stop) {
+    return undefined;
+  }
+
+  if (typeof stop === 'string') {
+    return [stop];
+  }
+
+  return stop.filter(Boolean);
+}
 
 /**
  * Converts OpenAI messages format to GitHub Copilot prompt format
@@ -19,33 +50,42 @@ export function convertMessagesToCopilotPrompt(messages: OpenAIMessage[]): strin
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return '';
   }
-  
-  let systemPrompt = '';
-  let userPrompts = '';
-  let assistantResponses = '';
-  
-  // Process messages in order to construct a coherent prompt
+
+  const promptParts: string[] = [];
+  let lastRole: OpenAIMessage['role'] | null = null;
+
   for (const message of messages) {
-    if (!message.role || !message.content) continue;
-    
+    const content = getMessageTextContent(message.content);
+
+    if (!message.role || !content) {
+      continue;
+    }
+
     switch (message.role) {
       case 'system':
-        systemPrompt += message.content + '\n\n';
+      case 'developer':
+        promptParts.push(`System: ${content}`);
         break;
       case 'user':
-        userPrompts += 'User: ' + message.content + '\n\n';
+        promptParts.push(`User: ${content}`);
         break;
       case 'assistant':
-        assistantResponses += 'Assistant: ' + message.content + '\n\n';
+        promptParts.push(`Assistant: ${content}`);
+        break;
+      case 'tool':
+      case 'function':
+        promptParts.push(`Tool: ${content}`);
         break;
     }
+
+    lastRole = message.role;
   }
-  
-  // Ensure it ends with a user message to prompt a response
-  const lastMessage = messages[messages.length - 1];
-  const needsAssistantPrompt = lastMessage.role !== 'user';
-  
-  return systemPrompt + userPrompts + assistantResponses + (needsAssistantPrompt ? '' : 'Assistant: ');
+
+  if (lastRole && lastRole !== 'assistant') {
+    promptParts.push('Assistant: ');
+  }
+
+  return promptParts.join('\n\n');
 }
 
 /**
@@ -60,11 +100,14 @@ export function detectLanguageFromMessages(messages: OpenAIMessage[]): string {
   }
   
   const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-  if (!lastUserMessage || !lastUserMessage.content) {
+  if (!lastUserMessage) {
     return 'javascript';
   }
-  
-  const content = lastUserMessage.content;
+
+  const content = getMessageTextContent(lastUserMessage.content);
+  if (!content) {
+    return 'javascript';
+  }
   
   // Check for code blocks with language specifications
   const codeBlockMatch = content.match(/```(\w+)/);
@@ -73,7 +116,7 @@ export function detectLanguageFromMessages(messages: OpenAIMessage[]): string {
   }
   
   // Check for file extensions in the message
-  const fileExtensionMatch = content.match(/\.([a-zA-Z0-9]+)(?:\s|"|')/);
+  const fileExtensionMatch = content.match(/\.([a-zA-Z0-9]+)(?:\s|"|'|$|[?!.,:;])/);
   if (fileExtensionMatch && fileExtensionMatch[1]) {
     const ext = fileExtensionMatch[1].toLowerCase();
     const extToLang: Record<string, string> = {
@@ -109,7 +152,7 @@ export async function makeCompletionRequest(
   request: OpenAICompletionRequest,
   copilotToken: string
 ): Promise<CopilotCompletionResponse> {
-  const { messages, temperature, max_tokens, top_p, n } = request;
+  const { messages, temperature, max_tokens, max_completion_tokens, top_p, n, stop } = request;
   
   // Convert OpenAI format to Copilot format
   const prompt = convertMessagesToCopilotPrompt(messages);
@@ -125,22 +168,24 @@ export async function makeCompletionRequest(
     'Authorization': `Bearer ${copilotToken}`,
     'X-Request-Id': uuidv4(),
     'Machine-Id': machineId,
-    'User-Agent': 'GitHubCopilotChat/0.12.0',
-    'Editor-Version': 'Cursor-IDE/1.0.0',
-    'Editor-Plugin-Version': 'copilot-cursor/1.0.0',
-    'Openai-Organization': 'github-copilot',
-    'Openai-Intent': 'copilot-ghost'
+    'User-Agent': config.github.copilot.clientHeaders.userAgent,
+    'Editor-Version': config.github.copilot.clientHeaders.editorVersion,
+    'Editor-Plugin-Version': config.github.copilot.clientHeaders.editorPluginVersion,
+    'Openai-Organization': config.github.copilot.clientHeaders.openAIOrganization,
+    'Openai-Intent': config.github.copilot.clientHeaders.openAIIntent
   };
+
+  const normalizedStop = normalizeStopSequences(stop);
   
   const body = {
     prompt,
     suffix,
-    max_tokens: max_tokens || 500,
-    temperature: temperature || 0.7,
-    top_p: top_p || 1,
-    n: n || 1,
+    max_tokens: max_tokens ?? max_completion_tokens ?? 500,
+    temperature: temperature ?? 0.7,
+    top_p: top_p ?? 1,
+    n: n ?? 1,
     stream: false,
-    stop: ["\n\n"],
+    ...(normalizedStop ? { stop: normalizedStop } : {}),
     extra: {
       language: detectLanguageFromMessages(messages),
       next_indent: 0,
